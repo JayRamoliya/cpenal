@@ -1,0 +1,4 @@
+192.168.1.1 - - [03/Nov/2026:21:10:00 -0800] "GET / HTTP/1.1" 200 4520 "-" "Mozilla/5.0"
+192.168.1.42 - - [03/Nov/2026:21:12:15 -0800] "GET /css/style.css HTTP/1.1" 200 1840 "https://demo-site.com/" "Mozilla/5.0"
+192.168.1.42 - - [03/Nov/2026:21:12:16 -0800] "GET /js/app.js HTTP/1.1" 200 890 "https://demo-site.com/" "Mozilla/5.0"
+66.249.66.1 - - [03/Nov/2026:21:15:30 -0800] "GET /robots.txt HTTP/1.1" 200 120 "-" "Googlebot/2.1"

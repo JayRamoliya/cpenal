@@ -1,0 +1,6 @@
+{
+  "name": "cPanel - Mini Hosting Control Panel",
+  "description": "A modern hosting dashboard and File Manager clone with live file upload, directory operations, code editing, image previews, and storage analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

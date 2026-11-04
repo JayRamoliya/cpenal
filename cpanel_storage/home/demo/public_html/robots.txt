@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /cgi-bin/
+Disallow: /admin/
+Sitemap: https://demo-site.com/sitemap.xml

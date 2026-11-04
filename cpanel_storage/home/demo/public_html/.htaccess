@@ -1,0 +1,14 @@
+# cPanel generated .htaccess file
+RewriteEngine On
+RewriteCond %{HTTPS} off
+RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+# Protect hidden files
+<FilesMatch "^\.(.*)$">
+  Order deny,allow
+  Deny from all
+</FilesMatch>
+
+# Custom Error Pages
+ErrorDocument 404 /404.html
+ErrorDocument 500 /500.html
