@@ -165,13 +165,13 @@ export const DirectoryPrivacyView: React.FC = () => {
                   </div>
                   <div>
                     <span className="font-semibold text-slate-800 font-mono text-sm block">
-                      {d.directory}
+                      {d.directory || d.path || '/home/demo/public_html/admin'}
                     </span>
                     <span className="text-slate-500 mt-0.5 block">
-                      Realm: <span className="font-medium text-slate-700">{d.realmName}</span>
+                      Realm: <span className="font-medium text-slate-700">{d.realmName || d.realm || 'Restricted Area'}</span>
                     </span>
                     <span className="text-[11px] text-slate-400 font-mono mt-0.5 block">
-                      Authorized Users: {d.authorizedUsers.join(', ')}
+                      Authorized Users: {(d.authorizedUsers || d.users || []).join(', ')}
                     </span>
                   </div>
                 </div>

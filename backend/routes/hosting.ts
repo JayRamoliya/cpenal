@@ -2,181 +2,369 @@ import { Router, Request, Response } from 'express';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const archiver = require('archiver');
-import { USER_HOME_DIR, resolveSafePath, logActivity } from '../storage.js';
+import path from 'path';
+import fs from 'fs';
+
+import { 
+  getDatabase, 
+  saveDatabase, 
+  addActivityLog, 
+  EmailAccount, 
+  DatabaseItem, 
+  FtpAccount, 
+  DomainItem, 
+  CronJob,
+  BackupItem 
+} from '../db/database.js';
+import { HOME_DIR, resolveAccountSafePath, calculateAccountDirectoryStats } from '../storage.js';
 
 const router = Router();
 
-// In-memory FTP accounts state
-interface FtpAccount {
-  id: string;
-  username: string;
-  domain: string;
-  directory: string;
-  quotaMB: number; // 0 for unlimited
-  created: string;
+function getActiveUser(req: Request): string {
+  const customUser = req.headers['x-cpanel-user'] as string;
+  if (customUser && customUser.trim()) {
+    return customUser.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+  }
+  const queryUser = (req.query.user as string) || (req.body && req.body.user);
+  if (queryUser && queryUser.trim()) {
+    return queryUser.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+  }
+  return 'demo';
 }
 
-let ftpAccounts: FtpAccount[] = [
-  {
-    id: 'ftp-1',
-    username: 'deploy',
-    domain: 'demo-site.com',
-    directory: '/home/demo/public_html',
-    quotaMB: 2048,
-    created: '2026-10-15',
-  },
-  {
-    id: 'ftp-2',
-    username: 'media_uploader',
-    domain: 'demo-site.com',
-    directory: '/home/demo/public_html/images',
-    quotaMB: 500,
-    created: '2026-10-28',
-  },
-];
-
-// Directory privacy protections
-interface ProtectedDir {
-  id: string;
-  directory: string;
-  realmName: string;
-  isProtected: boolean;
-  authorizedUsers: string[];
+function getAccount(user: string) {
+  const db = getDatabase();
+  return db.accounts.find((a) => a.username === user) || db.accounts[0];
 }
 
-let protectedDirs: ProtectedDir[] = [
-  {
-    id: 'pd-1',
-    directory: '/home/demo/public_html/admin',
-    realmName: 'Restricted Administration Area',
-    isProtected: true,
-    authorizedUsers: ['admin', 'sysmanager'],
-  },
-];
+// 1. DOMAINS MANAGEMENT
+router.get('/domains', (req: Request, res: Response) => {
+  const user = getActiveUser(req);
+  const account = getAccount(user);
+  const db = getDatabase();
+  const domains = db.domains.filter((d) => d.accountId === account.id);
+  return res.json({ domains, primaryDomain: account.domain });
+});
 
-// In-memory server settings
-let hostingSettings = {
-  phpVersion: '8.3.6',
-  displayErrors: false,
-  uploadMaxFilesize: '25M',
-  maxExecutionTime: '300',
-  memoryLimit: '512M',
-  timezone: 'America/Los_Angeles',
-  contactEmail: 'admin@demo-site.com',
-};
+router.post('/domains', (req: Request, res: Response) => {
+  try {
+    const user = getActiveUser(req);
+    const account = getAccount(user);
+    const { domain, type = 'addon', subfolder } = req.body || {};
 
-// --- FTP ACCOUNTS ---
+    if (!domain) return res.status(400).json({ error: 'Domain name is required' });
+    const cleanDomain = String(domain).toLowerCase().trim();
+
+    const db = getDatabase();
+    if (db.domains.some((d) => d.domain === cleanDomain)) {
+      return res.status(409).json({ error: `Domain "${cleanDomain}" is already registered` });
+    }
+
+    const docRoot = subfolder 
+      ? `/home/${user}/public_html/${subfolder}`
+      : `/home/${user}/public_html/${cleanDomain.replace(/[^a-z0-9]/g, '_')}`;
+
+    const newDom: DomainItem = {
+      id: `dom-${Date.now()}`,
+      accountId: account.id,
+      domain: cleanDomain,
+      type: type as any,
+      documentRoot: docRoot,
+      sslStatus: 'active',
+      createdAt: new Date().toISOString(),
+    };
+
+    // Ensure document root directory exists on disk
+    const targetDir = path.join(HOME_DIR, user, 'public_html', subfolder || cleanDomain.replace(/[^a-z0-9]/g, '_'));
+    if (!fs.existsSync(targetDir)) {
+      fs.mkdirSync(targetDir, { recursive: true });
+      fs.writeFileSync(path.join(targetDir, 'index.html'), `<h1>Site ready for ${cleanDomain}</h1>`, 'utf-8');
+    }
+
+    db.domains.push(newDom);
+    saveDatabase(db);
+    addActivityLog(user, 'cpanel', 'ADD_DOMAIN', cleanDomain, req.ip, account.id, `Type: ${type}, Root: ${docRoot}`);
+
+    return res.json({ success: true, domain: newDom, message: `Domain "${cleanDomain}" created successfully.` });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Failed to add domain' });
+  }
+});
+
+// 2. EMAIL ACCOUNTS
+router.get('/email', (req: Request, res: Response) => {
+  const user = getActiveUser(req);
+  const account = getAccount(user);
+  const db = getDatabase();
+  const emails = db.emailAccounts.filter((e) => e.accountId === account.id);
+  return res.json({ emails, defaultDomain: account.domain });
+});
+
+router.post('/email', (req: Request, res: Response) => {
+  try {
+    const user = getActiveUser(req);
+    const account = getAccount(user);
+    const { emailPrefix, domain, quotaMB, forwardTo, autoresponderEnabled, autoresponderSubject, autoresponderBody } = req.body || {};
+
+    if (!emailPrefix) return res.status(400).json({ error: 'Email prefix is required' });
+    const fullEmail = `${emailPrefix.toLowerCase()}@${domain || account.domain}`;
+
+    const db = getDatabase();
+    if (db.emailAccounts.some((e) => e.email === fullEmail)) {
+      return res.status(409).json({ error: `Email "${fullEmail}" already exists` });
+    }
+
+    const newMail: EmailAccount = {
+      id: `mail-${Date.now()}`,
+      accountId: account.id,
+      email: fullEmail,
+      quotaMB: Number(quotaMB) || 1024,
+      usedMB: 0.1,
+      forwardTo: forwardTo || undefined,
+      autoresponderEnabled: Boolean(autoresponderEnabled),
+      autoresponderSubject,
+      autoresponderBody,
+      createdAt: new Date().toISOString().split('T')[0],
+    };
+
+    db.emailAccounts.push(newMail);
+    saveDatabase(db);
+    addActivityLog(user, 'cpanel', 'CREATE_EMAIL', fullEmail, req.ip, account.id);
+
+    return res.json({ success: true, email: newMail, message: `Email account ${fullEmail} created.` });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Failed to create email' });
+  }
+});
+
+router.delete('/email/:id', (req: Request, res: Response) => {
+  const user = getActiveUser(req);
+  const db = getDatabase();
+  db.emailAccounts = db.emailAccounts.filter((e) => e.id !== req.params.id);
+  saveDatabase(db);
+  addActivityLog(user, 'cpanel', 'DELETE_EMAIL', req.params.id, req.ip);
+  return res.json({ success: true, message: 'Email account deleted.' });
+});
+
+// 3. MYSQL DATABASES
+router.get('/databases', (req: Request, res: Response) => {
+  const user = getActiveUser(req);
+  const account = getAccount(user);
+  const db = getDatabase();
+  const databases = db.databases.filter((d) => d.accountId === account.id);
+  return res.json({ databases, usernamePrefix: user });
+});
+
+router.post('/databases', (req: Request, res: Response) => {
+  try {
+    const user = getActiveUser(req);
+    const account = getAccount(user);
+    const { name } = req.body || {};
+    if (!name) return res.status(400).json({ error: 'Database name is required' });
+
+    const cleanSuffix = String(name).toLowerCase().replace(/[^a-z0-9_]/g, '');
+    const fullName = `${user}_${cleanSuffix}`;
+
+    const db = getDatabase();
+    if (db.databases.some((d) => d.name === fullName)) {
+      return res.status(409).json({ error: `Database "${fullName}" already exists` });
+    }
+
+    const newDb: DatabaseItem = {
+      id: `db-${Date.now()}`,
+      accountId: account.id,
+      name: fullName,
+      sizeMB: 0.1,
+      charset: 'utf8mb4_unicode_ci',
+      tablesCount: 0,
+      users: [{ username: `${user}_admin`, privileges: ['ALL PRIVILEGES'] }],
+    };
+
+    db.databases.push(newDb);
+    saveDatabase(db);
+    addActivityLog(user, 'cpanel', 'CREATE_DATABASE', fullName, req.ip, account.id);
+
+    return res.json({ success: true, database: newDb, message: `Database "${fullName}" created successfully.` });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Failed to create database' });
+  }
+});
+
+router.delete('/databases/:id', (req: Request, res: Response) => {
+  const user = getActiveUser(req);
+  const db = getDatabase();
+  db.databases = db.databases.filter((d) => d.id !== req.params.id);
+  saveDatabase(db);
+  addActivityLog(user, 'cpanel', 'DELETE_DATABASE', req.params.id, req.ip);
+  return res.json({ success: true, message: 'Database deleted.' });
+});
+
+// 4. FTP ACCOUNTS
 router.get('/ftp', (req: Request, res: Response) => {
-  return res.json({ accounts: ftpAccounts });
+  const user = getActiveUser(req);
+  const account = getAccount(user);
+  const db = getDatabase();
+  const accounts = db.ftpAccounts.filter((f) => f.accountId === account.id);
+  return res.json({ accounts });
 });
 
 router.post('/ftp', (req: Request, res: Response) => {
-  const { username, directory, quotaMB } = req.body || {};
-  if (!username) {
-    return res.status(400).json({ error: 'Username is required' });
+  try {
+    const user = getActiveUser(req);
+    const account = getAccount(user);
+    const { username, directory, quotaMB } = req.body || {};
+    if (!username) return res.status(400).json({ error: 'Username is required' });
+
+    const cleanUser = String(username).toLowerCase().replace(/[^a-z0-9_]/g, '');
+    const db = getDatabase();
+
+    const newFtp: FtpAccount = {
+      id: `ftp-${Date.now()}`,
+      accountId: account.id,
+      username: `${cleanUser}@${account.domain}`,
+      directory: directory || `/home/${user}/public_html`,
+      quotaMB: Number(quotaMB) || 2048,
+      createdAt: new Date().toISOString().split('T')[0],
+    };
+
+    db.ftpAccounts.push(newFtp);
+    saveDatabase(db);
+    addActivityLog(user, 'cpanel', 'CREATE_FTP', newFtp.username, req.ip, account.id);
+
+    return res.json({ success: true, account: newFtp });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Failed to create FTP account' });
   }
-
-  const cleanUser = String(username).toLowerCase().replace(/[^a-z0-9_]/g, '');
-  if (ftpAccounts.some((a) => a.username === cleanUser)) {
-    return res.status(409).json({ error: `FTP account "${cleanUser}" already exists` });
-  }
-
-  const newAcc: FtpAccount = {
-    id: `ftp-${Date.now()}`,
-    username: cleanUser,
-    domain: 'demo-site.com',
-    directory: directory || '/home/demo/public_html',
-    quotaMB: Number(quotaMB) || 1024,
-    created: new Date().toISOString().split('T')[0],
-  };
-
-  ftpAccounts.push(newAcc);
-  logActivity('create_file', `FTP Account: ${cleanUser}@demo-site.com`, `Directory: ${newAcc.directory}`);
-
-  return res.json({ success: true, account: newAcc, message: `FTP Account "${cleanUser}" created successfully.` });
 });
 
 router.delete('/ftp/:id', (req: Request, res: Response) => {
-  const { id } = req.params;
-  const initialLength = ftpAccounts.length;
-  ftpAccounts = ftpAccounts.filter((a) => a.id !== id);
-
-  if (ftpAccounts.length === initialLength) {
-    return res.status(404).json({ error: 'FTP account not found' });
-  }
-
-  return res.json({ success: true, message: 'FTP account removed.' });
+  const user = getActiveUser(req);
+  const db = getDatabase();
+  db.ftpAccounts = db.ftpAccounts.filter((f) => f.id !== req.params.id);
+  saveDatabase(db);
+  return res.json({ success: true, message: 'FTP account deleted' });
 });
 
-// --- DIRECTORY PRIVACY ---
-router.get('/privacy', (req: Request, res: Response) => {
-  return res.json({ directories: protectedDirs });
+// 5. CRON JOBS
+router.get('/cron', (req: Request, res: Response) => {
+  const user = getActiveUser(req);
+  const account = getAccount(user);
+  const db = getDatabase();
+  const jobs = db.cronJobs.filter((c) => c.accountId === account.id);
+  return res.json({ jobs });
 });
 
-router.post('/privacy', (req: Request, res: Response) => {
-  const { directory, realmName, isProtected, user } = req.body || {};
-  if (!directory) {
-    return res.status(400).json({ error: 'Directory path is required' });
+router.post('/cron', (req: Request, res: Response) => {
+  try {
+    const user = getActiveUser(req);
+    const account = getAccount(user);
+    const { command, minute = '0', hour = '*', day = '*', month = '*', weekday = '*' } = req.body || {};
+    if (!command) return res.status(400).json({ error: 'Cron command is required' });
+
+    const db = getDatabase();
+    const newJob: CronJob = {
+      id: `cron-${Date.now()}`,
+      accountId: account.id,
+      minute,
+      hour,
+      day,
+      month,
+      weekday,
+      command,
+    };
+
+    db.cronJobs.push(newJob);
+    saveDatabase(db);
+    addActivityLog(user, 'cpanel', 'ADD_CRON_JOB', command, req.ip, account.id);
+
+    return res.json({ success: true, job: newJob });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Failed to add cron job' });
   }
-
-  const existing = protectedDirs.find((d) => d.directory === directory);
-  if (existing) {
-    existing.isProtected = isProtected ?? existing.isProtected;
-    existing.realmName = realmName || existing.realmName;
-    if (user && !existing.authorizedUsers.includes(user)) {
-      existing.authorizedUsers.push(user);
-    }
-    return res.json({ success: true, directory: existing, message: 'Directory privacy updated.' });
-  }
-
-  const newEntry: ProtectedDir = {
-    id: `pd-${Date.now()}`,
-    directory,
-    realmName: realmName || 'Protected Directory',
-    isProtected: isProtected ?? true,
-    authorizedUsers: user ? [user] : ['admin'],
-  };
-
-  protectedDirs.push(newEntry);
-  logActivity('create_file', `Directory Privacy: ${directory}`, `Protected with Auth Realm: ${newEntry.realmName}`);
-
-  return res.json({ success: true, directory: newEntry, message: 'Directory password protection enabled.' });
 });
 
-// --- FULL BACKUP ARCHIVE GENERATION ---
+router.delete('/cron/:id', (req: Request, res: Response) => {
+  const user = getActiveUser(req);
+  const db = getDatabase();
+  db.cronJobs = db.cronJobs.filter((c) => c.id !== req.params.id);
+  saveDatabase(db);
+  return res.json({ success: true, message: 'Cron job removed' });
+});
+
+// 6. BACKUPS & STREAMING RESTORE
 router.get('/backup/full', (req: Request, res: Response) => {
   try {
+    const user = getActiveUser(req);
+    const account = getAccount(user);
+    const userHome = path.join(HOME_DIR, user);
+
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const filename = `backup-demo-site-${timestamp}.zip`;
+    const filename = `cpanel-backup-${account.domain}-${timestamp}.zip`;
 
     res.attachment(filename);
     const archive = archiver('zip', { zlib: { level: 6 } });
-
-    archive.on('error', (err: any) => {
-      res.status(500).send({ error: err.message });
-    });
-
+    archive.on('error', (err: any) => res.status(500).send({ error: err.message }));
     archive.pipe(res);
 
-    // Archive the full /home/demo directory structure
-    archive.directory(USER_HOME_DIR, 'home/demo');
-    logActivity('create_file', `/backup/${filename}`, 'Full cPanel Home Directory Archive Generated');
+    archive.directory(userHome, `home/${user}`);
 
+    const db = getDatabase();
+    const newBk: BackupItem = {
+      id: `bk-${Date.now()}`,
+      accountId: account.id,
+      domain: account.domain,
+      filename,
+      sizeMB: 18.5,
+      type: 'full',
+      createdAt: new Date().toISOString(),
+    };
+    db.backups.unshift(newBk);
+    saveDatabase(db);
+
+    addActivityLog(user, 'cpanel', 'CREATE_BACKUP', filename, req.ip, account.id, 'Full account archive generated');
     archive.finalize();
   } catch (err: any) {
-    return res.status(500).json({ error: err.message || 'Backup generation failed' });
+    return res.status(500).json({ error: err.message || 'Backup failed' });
   }
 });
 
-// --- SETTINGS ---
+router.get('/backups', (req: Request, res: Response) => {
+  const user = getActiveUser(req);
+  const account = getAccount(user);
+  const db = getDatabase();
+  const backups = db.backups.filter((b) => b.accountId === account.id);
+  return res.json({ backups });
+});
+
+// 7. PHP & SERVER PREFERENCES
 router.get('/settings', (req: Request, res: Response) => {
-  return res.json({ settings: hostingSettings });
+  const user = getActiveUser(req);
+  const account = getAccount(user);
+  return res.json({
+    phpVersion: account.phpVersion || '8.3.6',
+    displayErrors: false,
+    uploadMaxFilesize: '50M',
+    memoryLimit: '512M',
+    maxExecutionTime: '300',
+    timezone: 'UTC',
+    contactEmail: account.email,
+  });
 });
 
 router.put('/settings', (req: Request, res: Response) => {
-  const updates = req.body || {};
-  hostingSettings = { ...hostingSettings, ...updates };
-  return res.json({ success: true, settings: hostingSettings, message: 'Configuration saved successfully.' });
+  const user = getActiveUser(req);
+  const account = getAccount(user);
+  const db = getDatabase();
+  const match = db.accounts.find((a) => a.id === account.id);
+
+  if (match) {
+    if (req.body.phpVersion) match.phpVersion = req.body.phpVersion;
+    if (req.body.contactEmail) match.email = req.body.contactEmail;
+    saveDatabase(db);
+  }
+
+  addActivityLog(user, 'cpanel', 'UPDATE_SETTINGS', 'PHP / Account settings', req.ip, account.id);
+  return res.json({ success: true, message: 'Settings saved successfully.' });
 });
 
 export default router;

@@ -70,6 +70,11 @@ export const FileManager: React.FC<FileManagerProps> = ({
   const [editorFile, setEditorFile] = useState<string | null>(null);
   const [previewFile, setPreviewFile] = useState<{ path: string; category: string } | null>(null);
   const [permissionsTarget, setPermissionsTarget] = useState<FileItem | null>(null);
+  const [isCompressOpen, setIsCompressOpen] = useState(false);
+  const [compressArchiveName, setCompressArchiveName] = useState('archive.zip');
+  const [isExtractOpen, setIsExtractOpen] = useState(false);
+  const [extractDestination, setExtractDestination] = useState('');
+  const [modalActionLoading, setModalActionLoading] = useState(false);
 
   // Drag and drop upload over the table
   const [dragOverList, setDragOverList] = useState(false);
@@ -329,6 +334,34 @@ export const FileManager: React.FC<FileManagerProps> = ({
           >
             <Shield className="w-3.5 h-3.5 text-indigo-400" />
             <span>Permissions</span>
+          </button>
+
+          {/* Compress to ZIP */}
+          <button
+            onClick={() => {
+              setCompressArchiveName(`${selectedNames[0] || 'archive'}.zip`);
+              setIsCompressOpen(true);
+            }}
+            disabled={selectedNames.length === 0}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium hover:bg-slate-800 hover:text-white disabled:opacity-40 rounded transition-colors text-slate-300 cursor-pointer"
+            title="Compress Selected to ZIP"
+          >
+            <Archive className="w-3.5 h-3.5 text-purple-400" />
+            <span>Compress</span>
+          </button>
+
+          {/* Extract ZIP Archive */}
+          <button
+            onClick={() => {
+              setExtractDestination(currentPath);
+              setIsExtractOpen(true);
+            }}
+            disabled={!singleSelectedItem || singleSelectedItem.isDirectory || !singleSelectedItem.name.toLowerCase().endsWith('.zip')}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium hover:bg-slate-800 hover:text-white disabled:opacity-40 rounded transition-colors text-slate-300 cursor-pointer"
+            title="Extract ZIP Archive"
+          >
+            <Archive className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Extract</span>
           </button>
         </div>
 
@@ -699,6 +732,109 @@ export const FileManager: React.FC<FileManagerProps> = ({
           }
         }}
       />
+
+      {/* Compress Modal */}
+      {isCompressOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-md p-6 space-y-4">
+            <h3 className="font-bold text-slate-900 text-sm font-mono uppercase tracking-wide pb-2 border-b border-slate-100 flex items-center gap-2">
+              <Archive className="w-4 h-4 text-purple-600" />
+              Compress {selectedNames.length} Selected File(s)
+            </h3>
+
+            <div>
+              <label className="block text-slate-700 font-semibold mb-1 uppercase font-mono text-xs">
+                Archive File Name (.zip)
+              </label>
+              <input
+                type="text"
+                value={compressArchiveName}
+                onChange={(e) => setCompressArchiveName(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded font-mono text-xs text-slate-800"
+              />
+              <span className="text-[11px] text-slate-400 mt-1 block font-mono">
+                Will be created in: {currentPath}
+              </span>
+            </div>
+
+            <div className="pt-2 flex items-center justify-end gap-2.5">
+              <button
+                onClick={() => setIsCompressOpen(false)}
+                disabled={modalActionLoading}
+                className="px-4 py-2 border border-slate-300 rounded text-xs text-slate-700 hover:bg-slate-50 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  setModalActionLoading(true);
+                  try {
+                    await api.compressFiles(currentPath, selectedNames, compressArchiveName);
+                    setIsCompressOpen(false);
+                    fetchDirectory(currentPath);
+                  } finally {
+                    setModalActionLoading(false);
+                  }
+                }}
+                disabled={modalActionLoading || !compressArchiveName.trim()}
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded text-xs cursor-pointer"
+              >
+                {modalActionLoading ? 'Compressing...' : 'Compress Files'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Extract Modal */}
+      {isExtractOpen && singleSelectedItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-md p-6 space-y-4">
+            <h3 className="font-bold text-slate-900 text-sm font-mono uppercase tracking-wide pb-2 border-b border-slate-100 flex items-center gap-2">
+              <Archive className="w-4 h-4 text-emerald-600" />
+              Extract Archive: {singleSelectedItem.name}
+            </h3>
+
+            <div>
+              <label className="block text-slate-700 font-semibold mb-1 uppercase font-mono text-xs">
+                Extract Destination Directory
+              </label>
+              <input
+                type="text"
+                value={extractDestination}
+                onChange={(e) => setExtractDestination(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded font-mono text-xs text-slate-800"
+              />
+            </div>
+
+            <div className="pt-2 flex items-center justify-end gap-2.5">
+              <button
+                onClick={() => setIsExtractOpen(false)}
+                disabled={modalActionLoading}
+                className="px-4 py-2 border border-slate-300 rounded text-xs text-slate-700 hover:bg-slate-50 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  setModalActionLoading(true);
+                  try {
+                    await api.extractZip(singleSelectedItem.displayPath, extractDestination);
+                    setIsExtractOpen(false);
+                    fetchDirectory(currentPath);
+                  } finally {
+                    setModalActionLoading(false);
+                  }
+                }}
+                disabled={modalActionLoading}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded text-xs cursor-pointer"
+              >
+                {modalActionLoading ? 'Extracting...' : 'Extract File(s)'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

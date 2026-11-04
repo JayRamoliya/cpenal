@@ -5,48 +5,51 @@ import multer from 'multer';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const archiver = require('archiver');
-import { resolveSafePath, logActivity, USER_HOME_DIR } from '../storage.js';
+const AdmZip = require('adm-zip');
+
+import { resolveAccountSafePath, HOME_DIR } from '../storage.js';
+import { addActivityLog, getDatabase } from '../db/database.js';
 
 const router = Router();
 
-// Helper to determine unix-style permissions string (e.g. 0755, 0644)
+// Helper to extract active cPanel user from token or headers
+function getActiveUser(req: Request): string {
+  const customUser = req.headers['x-cpanel-user'] as string;
+  if (customUser && customUser.trim()) {
+    return customUser.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+  }
+  const queryUser = (req.query.user as string) || (req.body && req.body.user);
+  if (queryUser && queryUser.trim()) {
+    return queryUser.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+  }
+  return 'demo';
+}
+
 function getFormattedPermissions(mode: number, isDir: boolean): string {
   const octal = (mode & 0o777).toString(8);
-  if (octal.length < 3) {
-    return isDir ? '0755' : '0644';
-  }
+  if (octal.length < 3) return isDir ? '0755' : '0644';
   return '0' + octal;
 }
 
-// Helper to determine file category
 function getFileTypeCategory(ext: string): 'image' | 'code' | 'archive' | 'text' | 'document' | 'other' {
   const cleanExt = ext.toLowerCase();
-  if (['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.ico', '.bmp'].includes(cleanExt)) {
-    return 'image';
-  }
-  if (['.html', '.htm', '.css', '.js', '.jsx', '.ts', '.tsx', '.php', '.json', '.xml', '.sql', '.sh', '.py'].includes(cleanExt)) {
-    return 'code';
-  }
-  if (['.zip', '.tar', '.gz', '.rar', '.7z', '.bz2'].includes(cleanExt)) {
-    return 'archive';
-  }
-  if (['.txt', '.md', '.log', '.env', '.htaccess', '.conf', '.ini'].includes(cleanExt)) {
-    return 'text';
-  }
-  if (['.pdf', '.doc', '.docx', '.xls', '.xlsx'].includes(cleanExt)) {
-    return 'document';
-  }
+  if (['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.ico', '.bmp'].includes(cleanExt)) return 'image';
+  if (['.html', '.htm', '.css', '.js', '.jsx', '.ts', '.tsx', '.php', '.json', '.xml', '.sql', '.sh', '.py'].includes(cleanExt)) return 'code';
+  if (['.zip', '.tar', '.gz', '.rar', '.7z', '.bz2'].includes(cleanExt)) return 'archive';
+  if (['.txt', '.md', '.log', '.env', '.htaccess', '.conf', '.ini'].includes(cleanExt)) return 'text';
+  if (['.pdf', '.doc', '.docx', '.xls', '.xlsx'].includes(cleanExt)) return 'document';
   return 'other';
 }
 
-// Configure Multer storage
+// Multer storage with tenant-isolated destination
 const uploadStorage = multer.diskStorage({
   destination: (req, file, cb) => {
+    const user = getActiveUser(req);
     const rawDir = (req.query.dir as string) || (req.body && req.body.dir) || '/public_html';
-    const { safePath, isAllowed } = resolveSafePath(rawDir);
+    const { safePath, isAllowed } = resolveAccountSafePath(user, rawDir);
 
     if (!isAllowed) {
-      return cb(new Error('Access Denied: Path traversal detected'), '');
+      return cb(new Error('Access Denied: Path traversal detected outside account root'), '');
     }
 
     if (!fs.existsSync(safePath)) {
@@ -60,7 +63,6 @@ const uploadStorage = multer.diskStorage({
     cb(null, safePath);
   },
   filename: (req, file, cb) => {
-    // Sanitize filename to prevent directory traversal
     const sanitized = path.basename(file.originalname).replace(/[^a-zA-Z0-9._-]/g, '_');
     cb(null, sanitized);
   },
@@ -69,45 +71,40 @@ const uploadStorage = multer.diskStorage({
 const upload = multer({
   storage: uploadStorage,
   limits: {
-    fileSize: 25 * 1024 * 1024, // 25 MB max per file
-    files: 20, // max 20 files
+    fileSize: 50 * 1024 * 1024, // 50MB max file size
+    files: 25,
   },
   fileFilter: (req, file, cb) => {
-    // Block executable server binaries (like .exe, .bin, .dll)
     const dangerousExts = ['.exe', '.bat', '.cmd', '.com', '.vbs', '.dll', '.so'];
     const ext = path.extname(file.originalname).toLowerCase();
     if (dangerousExts.includes(ext)) {
-      return cb(new Error(`File type ${ext} is restricted for security reasons.`));
+      return cb(new Error(`File type ${ext} is restricted for security.`));
     }
     cb(null, true);
   },
 });
 
-// 1. GET /api/files - List directory items
+// 1. GET /api/files - List files in user's isolated directory
 router.get('/', (req: Request, res: Response) => {
   try {
+    const user = getActiveUser(req);
     const requestedPath = (req.query.path as string) || '/public_html';
-    const { safePath, displayPath, isAllowed } = resolveSafePath(requestedPath);
+    const { safePath, displayPath, isAllowed } = resolveAccountSafePath(user, requestedPath);
 
     if (!isAllowed) {
-      return res.status(403).json({ error: 'Forbidden: Access denied outside sandbox' });
+      return res.status(403).json({ error: 'Forbidden: Access denied outside your account root' });
     }
 
     if (!fs.existsSync(safePath)) {
       return res.status(404).json({ error: 'Directory does not exist' });
     }
 
-    const stat = fs.statSync(safePath);
-    if (!stat.isDirectory()) {
-      return res.status(400).json({ error: 'Requested path is not a directory' });
-    }
-
-    // Determine parent path
+    const userHome = path.join(HOME_DIR, user);
     let parentPath: string | null = null;
-    if (safePath !== USER_HOME_DIR) {
+    if (safePath !== userHome) {
       const parentDir = path.dirname(safePath);
-      const relativeFromHome = path.relative(USER_HOME_DIR, parentDir).replace(/\\/g, '/');
-      parentPath = '/home/demo' + (relativeFromHome ? '/' + relativeFromHome : '');
+      const relativeFromHome = path.relative(userHome, parentDir).replace(/\\/g, '/');
+      parentPath = `/home/${user}` + (relativeFromHome ? '/' + relativeFromHome : '');
     }
 
     const dirEntries = fs.readdirSync(safePath, { withFileTypes: true });
@@ -125,11 +122,11 @@ router.get('/', (req: Request, res: Response) => {
         mtime = itemStat.mtime.toISOString();
         permissions = getFormattedPermissions(itemStat.mode, entry.isDirectory());
       } catch {
-        // Fallback default
+        // ignore
       }
 
-      const relativeItem = path.relative(USER_HOME_DIR, entryFullPath).replace(/\\/g, '/');
-      const itemDisplayPath = '/home/demo/' + relativeItem;
+      const relativeItem = path.relative(userHome, entryFullPath).replace(/\\/g, '/');
+      const itemDisplayPath = `/home/${user}/` + relativeItem;
 
       return {
         name: entry.name,
@@ -143,7 +140,6 @@ router.get('/', (req: Request, res: Response) => {
       };
     });
 
-    // Sort folders first, then files alphabetically
     items.sort((a, b) => {
       if (a.isDirectory && !b.isDirectory) return -1;
       if (!a.isDirectory && b.isDirectory) return 1;
@@ -151,33 +147,31 @@ router.get('/', (req: Request, res: Response) => {
     });
 
     return res.json({
+      user,
       currentPath: displayPath,
       parentPath,
       totalItems: items.length,
       items,
     });
   } catch (err: any) {
-    return res.status(500).json({ error: err?.message || 'Failed to list directory' });
+    return res.status(500).json({ error: err.message || 'Failed to list directory' });
   }
 });
 
-// 2. POST /api/files/upload - Handle file upload with Multer
+// 2. POST /api/files/upload - Handle file upload
 router.post('/upload', (req: Request, res: Response) => {
-  upload.array('files', 20)(req, res, (err: any) => {
-    if (err) {
-      return res.status(400).json({ error: err.message || 'File upload failed' });
-    }
+  upload.array('files', 25)(req, res, (err: any) => {
+    if (err) return res.status(400).json({ error: err.message || 'File upload failed' });
 
     const files = req.files as Express.Multer.File[];
-    if (!files || files.length === 0) {
-      return res.status(400).json({ error: 'No files provided for upload' });
-    }
+    if (!files || files.length === 0) return res.status(400).json({ error: 'No files uploaded' });
 
+    const user = getActiveUser(req);
     const rawDir = (req.query.dir as string) || req.body.dir || '/public_html';
-    const { displayPath } = resolveSafePath(rawDir);
+    const { displayPath } = resolveAccountSafePath(user, rawDir);
 
     const uploadedDetails = files.map((f) => {
-      logActivity('upload', `${displayPath}/${f.filename}`, `${(f.size / 1024).toFixed(1)} KB`);
+      addActivityLog(user, 'cpanel', 'FILE_UPLOAD', `${displayPath}/${f.filename}`, req.ip, undefined, `${(f.size / 1024).toFixed(1)} KB`);
       return {
         filename: f.filename,
         originalName: f.originalname,
@@ -194,40 +188,29 @@ router.post('/upload', (req: Request, res: Response) => {
   });
 });
 
-// 3. POST /api/files/create - Create new file
+// 3. POST /api/files/create - Create New File
 router.post('/create', (req: Request, res: Response) => {
   try {
-    const { dir, name, content = '' } = req.body || {};
-    if (!name || typeof name !== 'string') {
-      return res.status(400).json({ error: 'Valid file name is required' });
-    }
+    const user = getActiveUser(req);
+    const { dir = '/public_html', name, content = '' } = req.body || {};
+    if (!name) return res.status(400).json({ error: 'File name is required' });
 
     const sanitizedName = path.basename(name).replace(/[^a-zA-Z0-9._-]/g, '_');
-    const targetDir = dir || '/public_html';
-    const { safePath, isAllowed } = resolveSafePath(targetDir);
+    const { safePath, isAllowed } = resolveAccountSafePath(user, dir);
 
-    if (!isAllowed) {
-      return res.status(403).json({ error: 'Forbidden: Invalid directory' });
-    }
+    if (!isAllowed) return res.status(403).json({ error: 'Forbidden: Access denied outside account root' });
 
     const fullFilePath = path.join(safePath, sanitizedName);
-    const { safePath: validatedFile, isAllowed: isFileAllowed } = resolveSafePath(
-      path.relative(USER_HOME_DIR, fullFilePath)
-    );
+    const { safePath: validatedPath, isAllowed: isTargetAllowed } = resolveAccountSafePath(user, path.relative(path.join(HOME_DIR, user), fullFilePath));
 
-    if (!isFileAllowed) {
-      return res.status(403).json({ error: 'Forbidden path destination' });
-    }
+    if (!isTargetAllowed) return res.status(403).json({ error: 'Forbidden file destination' });
+    if (fs.existsSync(validatedPath)) return res.status(409).json({ error: `File "${sanitizedName}" already exists` });
 
-    if (fs.existsSync(validatedFile)) {
-      return res.status(409).json({ error: `File "${sanitizedName}" already exists` });
-    }
+    fs.writeFileSync(validatedPath, content, 'utf-8');
+    const relative = path.relative(path.join(HOME_DIR, user), validatedPath).replace(/\\/g, '/');
+    const displayPath = `/home/${user}/${relative}`;
 
-    fs.writeFileSync(validatedFile, content, 'utf-8');
-    const relativeFromHome = path.relative(USER_HOME_DIR, validatedFile).replace(/\\/g, '/');
-    const displayPath = '/home/demo/' + relativeFromHome;
-
-    logActivity('create_file', displayPath);
+    addActivityLog(user, 'cpanel', 'CREATE_FILE', displayPath, req.ip);
 
     return res.json({
       success: true,
@@ -239,40 +222,29 @@ router.post('/create', (req: Request, res: Response) => {
   }
 });
 
-// 4. POST /api/folders/create - Create new directory
+// 4. POST /api/files/create-folder - Create New Directory
 router.post('/create-folder', (req: Request, res: Response) => {
   try {
-    const { dir, name } = req.body || {};
-    if (!name || typeof name !== 'string') {
-      return res.status(400).json({ error: 'Folder name is required' });
-    }
+    const user = getActiveUser(req);
+    const { dir = '/public_html', name } = req.body || {};
+    if (!name) return res.status(400).json({ error: 'Folder name is required' });
 
     const sanitizedName = path.basename(name).replace(/[^a-zA-Z0-9._-]/g, '_');
-    const targetDir = dir || '/public_html';
-    const { safePath, isAllowed } = resolveSafePath(targetDir);
+    const { safePath, isAllowed } = resolveAccountSafePath(user, dir);
 
-    if (!isAllowed) {
-      return res.status(403).json({ error: 'Forbidden: Invalid directory' });
-    }
+    if (!isAllowed) return res.status(403).json({ error: 'Forbidden: Access denied outside account root' });
 
     const fullDirPath = path.join(safePath, sanitizedName);
-    const { safePath: validatedDir, isAllowed: isDirAllowed } = resolveSafePath(
-      path.relative(USER_HOME_DIR, fullDirPath)
-    );
+    const { safePath: validatedPath, isAllowed: isDirAllowed } = resolveAccountSafePath(user, path.relative(path.join(HOME_DIR, user), fullDirPath));
 
-    if (!isDirAllowed) {
-      return res.status(403).json({ error: 'Forbidden destination directory' });
-    }
+    if (!isDirAllowed) return res.status(403).json({ error: 'Forbidden destination directory' });
+    if (fs.existsSync(validatedPath)) return res.status(409).json({ error: `Folder "${sanitizedName}" already exists` });
 
-    if (fs.existsSync(validatedDir)) {
-      return res.status(409).json({ error: `Folder "${sanitizedName}" already exists` });
-    }
+    fs.mkdirSync(validatedPath, { recursive: true });
+    const relative = path.relative(path.join(HOME_DIR, user), validatedPath).replace(/\\/g, '/');
+    const displayPath = `/home/${user}/${relative}`;
 
-    fs.mkdirSync(validatedDir, { recursive: true });
-    const relativeFromHome = path.relative(USER_HOME_DIR, validatedDir).replace(/\\/g, '/');
-    const displayPath = '/home/demo/' + relativeFromHome;
-
-    logActivity('create_folder', displayPath);
+    addActivityLog(user, 'cpanel', 'CREATE_FOLDER', displayPath, req.ip);
 
     return res.json({
       success: true,
@@ -284,20 +256,15 @@ router.post('/create-folder', (req: Request, res: Response) => {
   }
 });
 
-// 5. PUT /api/files/rename - Rename file or folder
+// 5. PUT /api/files/rename - Rename File or Directory
 router.put('/rename', (req: Request, res: Response) => {
   try {
-    const { dir, oldName, newName } = req.body || {};
-    if (!oldName || !newName) {
-      return res.status(400).json({ error: 'Old name and new name are required' });
-    }
+    const user = getActiveUser(req);
+    const { dir = '/public_html', oldName, newName } = req.body || {};
+    if (!oldName || !newName) return res.status(400).json({ error: 'Both old and new names required' });
 
-    const targetDir = dir || '/public_html';
-    const { safePath: dirSafePath, isAllowed } = resolveSafePath(targetDir);
-
-    if (!isAllowed) {
-      return res.status(403).json({ error: 'Forbidden: Access denied' });
-    }
+    const { safePath: dirSafePath, isAllowed } = resolveAccountSafePath(user, dir);
+    if (!isAllowed) return res.status(403).json({ error: 'Forbidden: Access denied' });
 
     const sanitizedOld = path.basename(oldName);
     const sanitizedNew = path.basename(newName).replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -305,58 +272,39 @@ router.put('/rename', (req: Request, res: Response) => {
     const sourcePath = path.join(dirSafePath, sanitizedOld);
     const destPath = path.join(dirSafePath, sanitizedNew);
 
-    if (!fs.existsSync(sourcePath)) {
-      return res.status(404).json({ error: `Item "${sanitizedOld}" not found` });
-    }
-
-    if (fs.existsSync(destPath)) {
-      return res.status(409).json({ error: `Item "${sanitizedNew}" already exists` });
-    }
+    if (!fs.existsSync(sourcePath)) return res.status(404).json({ error: `Item "${sanitizedOld}" not found` });
+    if (fs.existsSync(destPath)) return res.status(409).json({ error: `Item "${sanitizedNew}" already exists` });
 
     fs.renameSync(sourcePath, destPath);
-
-    const relativeOld = path.relative(USER_HOME_DIR, sourcePath).replace(/\\/g, '/');
-    const relativeNew = path.relative(USER_HOME_DIR, destPath).replace(/\\/g, '/');
-
-    logActivity('rename', `/home/demo/${relativeNew}`, `Renamed from ${relativeOld}`);
+    addActivityLog(user, 'cpanel', 'RENAME', `${dir}/${sanitizedNew}`, req.ip, undefined, `Renamed from ${sanitizedOld}`);
 
     return res.json({
       success: true,
       message: `Renamed to "${sanitizedNew}" successfully.`,
-      newPath: `/home/demo/${relativeNew}`,
     });
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Failed to rename item' });
   }
 });
 
-// 6. DELETE /api/files/delete - Delete multiple items
+// 6. DELETE /api/files/delete - Delete Files/Folders
 router.delete('/delete', (req: Request, res: Response) => {
   try {
+    const user = getActiveUser(req);
     const { paths } = req.body || {};
-    if (!Array.isArray(paths) || paths.length === 0) {
-      return res.status(400).json({ error: 'Paths array is required' });
-    }
+    if (!Array.isArray(paths) || paths.length === 0) return res.status(400).json({ error: 'Paths array required' });
 
+    const userHome = path.join(HOME_DIR, user);
     const deleted: string[] = [];
-    const errors: string[] = [];
 
     for (const itemPath of paths) {
-      const { safePath, displayPath, isAllowed } = resolveSafePath(itemPath);
-
-      if (!isAllowed || safePath === USER_HOME_DIR) {
-        errors.push(`Cannot delete protected root folder: ${itemPath}`);
-        continue;
-      }
+      const { safePath, displayPath, isAllowed } = resolveAccountSafePath(user, itemPath);
+      if (!isAllowed || safePath === userHome) continue;
 
       if (fs.existsSync(safePath)) {
-        try {
-          fs.rmSync(safePath, { recursive: true, force: true });
-          deleted.push(displayPath);
-          logActivity('delete', displayPath);
-        } catch (delErr: any) {
-          errors.push(`Failed to delete ${displayPath}: ${delErr.message}`);
-        }
+        fs.rmSync(safePath, { recursive: true, force: true });
+        deleted.push(displayPath);
+        addActivityLog(user, 'cpanel', 'DELETE', displayPath, req.ip);
       }
     }
 
@@ -364,60 +312,149 @@ router.delete('/delete', (req: Request, res: Response) => {
       success: true,
       message: `Deleted ${deleted.length} item(s).`,
       deleted,
-      errors: errors.length > 0 ? errors : undefined,
     });
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Failed to delete items' });
   }
 });
 
-// 7. GET /api/files/download - Download single file or zip multiple items
+// 7. POST /api/files/copy & move
+router.post('/copy-move', (req: Request, res: Response) => {
+  try {
+    const user = getActiveUser(req);
+    const { action = 'copy', sourcePaths, targetDir } = req.body || {};
+    if (!Array.isArray(sourcePaths) || !targetDir) {
+      return res.status(400).json({ error: 'sourcePaths array and targetDir required' });
+    }
+
+    const { safePath: targetSafe, isAllowed: targetAllowed } = resolveAccountSafePath(user, targetDir);
+    if (!targetAllowed) return res.status(403).json({ error: 'Forbidden destination directory' });
+
+    if (!fs.existsSync(targetSafe)) {
+      fs.mkdirSync(targetSafe, { recursive: true });
+    }
+
+    for (const src of sourcePaths) {
+      const { safePath: srcSafe, isAllowed: srcAllowed } = resolveAccountSafePath(user, src);
+      if (!srcAllowed || !fs.existsSync(srcSafe)) continue;
+
+      const baseName = path.basename(srcSafe);
+      const dest = path.join(targetSafe, baseName);
+
+      if (action === 'move') {
+        fs.renameSync(srcSafe, dest);
+      } else {
+        fs.cpSync(srcSafe, dest, { recursive: true });
+      }
+    }
+
+    addActivityLog(user, 'cpanel', action === 'move' ? 'MOVE_FILES' : 'COPY_FILES', `${sourcePaths.length} items to ${targetDir}`, req.ip);
+
+    return res.json({ success: true, message: `Successfully ${action}d ${sourcePaths.length} item(s).` });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Copy/Move operation failed' });
+  }
+});
+
+// 8. POST /api/files/compress - Compress files to ZIP
+router.post('/compress', (req: Request, res: Response) => {
+  try {
+    const user = getActiveUser(req);
+    const { dir, files, archiveName = 'archive.zip' } = req.body || {};
+    if (!Array.isArray(files) || files.length === 0) {
+      return res.status(400).json({ error: 'Files array required' });
+    }
+
+    const { safePath: dirSafe, isAllowed } = resolveAccountSafePath(user, dir);
+    if (!isAllowed) return res.status(403).json({ error: 'Forbidden directory' });
+
+    const cleanArchiveName = archiveName.endsWith('.zip') ? archiveName : `${archiveName}.zip`;
+    const zipPath = path.join(dirSafe, cleanArchiveName);
+
+    const zip = new AdmZip();
+    for (const f of files) {
+      const { safePath: itemSafe, isAllowed: itemAllowed } = resolveAccountSafePath(user, `${dir}/${f}`);
+      if (!itemAllowed || !fs.existsSync(itemSafe)) continue;
+
+      const stat = fs.statSync(itemSafe);
+      if (stat.isDirectory()) {
+        zip.addLocalFolder(itemSafe, f);
+      } else {
+        zip.addLocalFile(itemSafe);
+      }
+    }
+
+    zip.writeZip(zipPath);
+    addActivityLog(user, 'cpanel', 'COMPRESS_ZIP', `${dir}/${cleanArchiveName}`, req.ip);
+
+    return res.json({ success: true, message: `Created archive "${cleanArchiveName}" successfully.` });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Compression failed' });
+  }
+});
+
+// 9. POST /api/files/extract - Extract ZIP archive
+router.post('/extract', (req: Request, res: Response) => {
+  try {
+    const user = getActiveUser(req);
+    const { archivePath, destinationDir } = req.body || {};
+    if (!archivePath) return res.status(400).json({ error: 'Archive path required' });
+
+    const { safePath: zipSafe, isAllowed: zipAllowed } = resolveAccountSafePath(user, archivePath);
+    if (!zipAllowed || !fs.existsSync(zipSafe)) {
+      return res.status(404).json({ error: 'Archive file not found' });
+    }
+
+    const targetDir = destinationDir || path.dirname(zipSafe);
+    const { safePath: destSafe, isAllowed: destAllowed } = resolveAccountSafePath(user, targetDir);
+    if (!destAllowed) return res.status(403).json({ error: 'Forbidden destination directory' });
+
+    if (!fs.existsSync(destSafe)) fs.mkdirSync(destSafe, { recursive: true });
+
+    const zip = new AdmZip(zipSafe);
+    zip.extractAllTo(destSafe, true);
+
+    addActivityLog(user, 'cpanel', 'EXTRACT_ZIP', path.basename(zipSafe), req.ip, undefined, `Extracted to ${destinationDir}`);
+
+    return res.json({ success: true, message: `Archive extracted successfully.` });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Extraction failed' });
+  }
+});
+
+// 10. GET /api/files/download - Download single file or zip
 router.get('/download', (req: Request, res: Response) => {
   try {
+    const user = getActiveUser(req);
     const rawPaths = req.query.paths || req.query.path;
-    if (!rawPaths) {
-      return res.status(400).json({ error: 'Path parameter is required' });
-    }
+    if (!rawPaths) return res.status(400).json({ error: 'Path required' });
 
     const pathList = Array.isArray(rawPaths)
       ? (rawPaths as string[])
       : String(rawPaths).split(',').map((p) => p.trim()).filter(Boolean);
 
-    if (pathList.length === 0) {
-      return res.status(400).json({ error: 'No valid paths provided' });
-    }
-
-    // Single file download
     if (pathList.length === 1) {
-      const { safePath, isAllowed } = resolveSafePath(pathList[0]);
-      if (!isAllowed || !fs.existsSync(safePath)) {
-        return res.status(404).json({ error: 'File not found or access denied' });
-      }
+      const { safePath, isAllowed } = resolveAccountSafePath(user, pathList[0]);
+      if (!isAllowed || !fs.existsSync(safePath)) return res.status(404).json({ error: 'File not found' });
 
       const stat = fs.statSync(safePath);
       if (stat.isFile()) {
-        const filename = path.basename(safePath);
-        return res.download(safePath, filename);
+        return res.download(safePath, path.basename(safePath));
       }
     }
 
-    // Multi-file or directory download: create zip archive stream
-    res.attachment(`cpanel-archive-${Date.now()}.zip`);
+    // Multiple files or folder -> streaming zip
+    res.attachment(`cpanel-${user}-archive-${Date.now()}.zip`);
     const archive = archiver('zip', { zlib: { level: 6 } });
-
-    archive.on('error', (err: any) => {
-      res.status(500).send({ error: err.message });
-    });
-
+    archive.on('error', (err: any) => res.status(500).send({ error: err.message }));
     archive.pipe(res);
 
     for (const p of pathList) {
-      const { safePath, isAllowed } = resolveSafePath(p);
+      const { safePath, isAllowed } = resolveAccountSafePath(user, p);
       if (!isAllowed || !fs.existsSync(safePath)) continue;
 
       const stat = fs.statSync(safePath);
       const name = path.basename(safePath);
-
       if (stat.isDirectory()) {
         archive.directory(safePath, name);
       } else {
@@ -431,25 +468,18 @@ router.get('/download', (req: Request, res: Response) => {
   }
 });
 
-// 8. GET /api/files/preview - Preview content (stream image or return text)
+// 11. GET /api/files/preview & content
 router.get('/preview', (req: Request, res: Response) => {
   try {
+    const user = getActiveUser(req);
     const targetPath = (req.query.path as string) || '';
-    const { safePath, isAllowed } = resolveSafePath(targetPath);
+    const { safePath, isAllowed } = resolveAccountSafePath(user, targetPath);
 
-    if (!isAllowed || !fs.existsSync(safePath)) {
-      return res.status(404).json({ error: 'File not found or access denied' });
-    }
-
+    if (!isAllowed || !fs.existsSync(safePath)) return res.status(404).json({ error: 'File not found' });
     const stat = fs.statSync(safePath);
-    if (stat.isDirectory()) {
-      return res.status(400).json({ error: 'Cannot preview directory' });
-    }
+    if (stat.isDirectory()) return res.status(400).json({ error: 'Cannot preview directory' });
 
     const ext = path.extname(safePath).toLowerCase();
-    const filename = path.basename(safePath);
-
-    // Image preview: stream directly
     const imageMimes: Record<string, string> = {
       '.png': 'image/png',
       '.jpg': 'image/jpeg',
@@ -457,7 +487,6 @@ router.get('/preview', (req: Request, res: Response) => {
       '.gif': 'image/gif',
       '.svg': 'image/svg+xml',
       '.webp': 'image/webp',
-      '.ico': 'image/x-icon',
     };
 
     if (imageMimes[ext]) {
@@ -465,14 +494,9 @@ router.get('/preview', (req: Request, res: Response) => {
       return fs.createReadStream(safePath).pipe(res);
     }
 
-    // Text / Code preview: return content (limited to 5MB)
-    if (stat.size > 5 * 1024 * 1024) {
-      return res.status(413).json({ error: 'File too large to preview (> 5MB)' });
-    }
-
     const content = fs.readFileSync(safePath, 'utf-8');
     return res.json({
-      filename,
+      filename: path.basename(safePath),
       size: stat.size,
       mtime: stat.mtime.toISOString(),
       extension: ext,
@@ -483,31 +507,26 @@ router.get('/preview', (req: Request, res: Response) => {
   }
 });
 
-// 9. PUT /api/files/content - Save file editor changes
+// 12. PUT /api/files/content - Save File Content
 router.put('/content', (req: Request, res: Response) => {
   try {
+    const user = getActiveUser(req);
     const { path: filePath, content } = req.body || {};
     if (!filePath || typeof content !== 'string') {
-      return res.status(400).json({ error: 'File path and string content are required' });
+      return res.status(400).json({ error: 'File path and content required' });
     }
 
-    const { safePath, displayPath, isAllowed } = resolveSafePath(filePath);
-
+    const { safePath, displayPath, isAllowed } = resolveAccountSafePath(user, filePath);
     if (!isAllowed || !fs.existsSync(safePath)) {
       return res.status(404).json({ error: 'File not found or permission denied' });
     }
 
-    const stat = fs.statSync(safePath);
-    if (stat.isDirectory()) {
-      return res.status(400).json({ error: 'Target is a directory, not a file' });
-    }
-
     fs.writeFileSync(safePath, content, 'utf-8');
-    logActivity('edit', displayPath, `${content.length} characters`);
+    addActivityLog(user, 'cpanel', 'EDIT_FILE', displayPath, req.ip, undefined, `${content.length} characters`);
 
     return res.json({
       success: true,
-      message: `File "${path.basename(safePath)}" saved successfully.`,
+      message: `File saved successfully.`,
       displayPath,
     });
   } catch (err: any) {

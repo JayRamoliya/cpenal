@@ -17,7 +17,8 @@ import {
   Globe,
   Clock,
   Layers,
-  Sparkles
+  Sparkles,
+  Mail
 } from 'lucide-react';
 import { StorageStats, ActivityItem, User, ActiveTab } from '../../types/cpanel';
 
@@ -217,12 +218,60 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                 </div>
               </button>
 
-              {/* Tool 3: Images & Media */}
+              {/* Tool 3: Domains & Addons */}
+              <button
+                onClick={() => onNavigateTab('domains')}
+                className="p-4 rounded-xl border border-slate-200 hover:border-sky-500 hover:bg-sky-50/40 text-left transition-all group cursor-pointer"
+              >
+                <div className="w-9 h-9 rounded-lg bg-emerald-500 text-white flex items-center justify-center mb-2.5 shadow-xs group-hover:scale-105 transition-transform">
+                  <Globe className="w-5 h-5" />
+                </div>
+                <div className="font-semibold text-xs text-slate-900 group-hover:text-sky-700">
+                  Domains &amp; Addons
+                </div>
+                <div className="text-[11px] text-slate-500 mt-0.5">
+                  Subdomains, aliases &amp; document roots
+                </div>
+              </button>
+
+              {/* Tool 4: MySQL Databases */}
+              <button
+                onClick={() => onNavigateTab('databases')}
+                className="p-4 rounded-xl border border-slate-200 hover:border-sky-500 hover:bg-sky-50/40 text-left transition-all group cursor-pointer"
+              >
+                <div className="w-9 h-9 rounded-lg bg-indigo-500 text-white flex items-center justify-center mb-2.5 shadow-xs group-hover:scale-105 transition-transform">
+                  <Database className="w-5 h-5" />
+                </div>
+                <div className="font-semibold text-xs text-slate-900 group-hover:text-sky-700">
+                  MySQL Databases
+                </div>
+                <div className="text-[11px] text-slate-500 mt-0.5">
+                  phpMyAdmin console &amp; schemas
+                </div>
+              </button>
+
+              {/* Tool 5: Email Accounts */}
+              <button
+                onClick={() => onNavigateTab('email')}
+                className="p-4 rounded-xl border border-slate-200 hover:border-sky-500 hover:bg-sky-50/40 text-left transition-all group cursor-pointer"
+              >
+                <div className="w-9 h-9 rounded-lg bg-violet-500 text-white flex items-center justify-center mb-2.5 shadow-xs group-hover:scale-105 transition-transform">
+                  <Mail className="w-5 h-5" />
+                </div>
+                <div className="font-semibold text-xs text-slate-900 group-hover:text-sky-700">
+                  Email Accounts
+                </div>
+                <div className="text-[11px] text-slate-500 mt-0.5">
+                  Roundcube webmail &amp; forwarders
+                </div>
+              </button>
+
+              {/* Tool 6: Images & Media */}
               <button
                 onClick={() => onNavigateTab('images')}
                 className="p-4 rounded-xl border border-slate-200 hover:border-sky-500 hover:bg-sky-50/40 text-left transition-all group cursor-pointer"
               >
-                <div className="w-9 h-9 rounded-lg bg-emerald-500 text-white flex items-center justify-center mb-2.5 shadow-xs group-hover:scale-105 transition-transform">
+                <div className="w-9 h-9 rounded-lg bg-cyan-500 text-white flex items-center justify-center mb-2.5 shadow-xs group-hover:scale-105 transition-transform">
                   <Globe className="w-5 h-5" />
                 </div>
                 <div className="font-semibold text-xs text-slate-900 group-hover:text-sky-700">
@@ -233,12 +282,12 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                 </div>
               </button>
 
-              {/* Tool 4: FTP Accounts */}
+              {/* Tool 7: FTP Accounts */}
               <button
                 onClick={() => onNavigateTab('ftp')}
                 className="p-4 rounded-xl border border-slate-200 hover:border-sky-500 hover:bg-sky-50/40 text-left transition-all group cursor-pointer"
               >
-                <div className="w-9 h-9 rounded-lg bg-indigo-500 text-white flex items-center justify-center mb-2.5 shadow-xs group-hover:scale-105 transition-transform">
+                <div className="w-9 h-9 rounded-lg bg-blue-500 text-white flex items-center justify-center mb-2.5 shadow-xs group-hover:scale-105 transition-transform">
                   <Server className="w-5 h-5" />
                 </div>
                 <div className="font-semibold text-xs text-slate-900 group-hover:text-sky-700">
@@ -249,23 +298,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                 </div>
               </button>
 
-              {/* Tool 5: Directory Privacy */}
-              <button
-                onClick={() => onNavigateTab('privacy')}
-                className="p-4 rounded-xl border border-slate-200 hover:border-sky-500 hover:bg-sky-50/40 text-left transition-all group cursor-pointer"
-              >
-                <div className="w-9 h-9 rounded-lg bg-rose-500 text-white flex items-center justify-center mb-2.5 shadow-xs group-hover:scale-105 transition-transform">
-                  <Lock className="w-5 h-5" />
-                </div>
-                <div className="font-semibold text-xs text-slate-900 group-hover:text-sky-700">
-                  Directory Privacy
-                </div>
-                <div className="text-[11px] text-slate-500 mt-0.5">
-                  Protect folders with .htpasswd
-                </div>
-              </button>
-
-              {/* Tool 6: Backup Wizard */}
+              {/* Tool 8: Backup Wizard */}
               <button
                 onClick={() => onNavigateTab('backup')}
                 className="p-4 rounded-xl border border-slate-200 hover:border-sky-500 hover:bg-sky-50/40 text-left transition-all group cursor-pointer"
@@ -303,14 +336,13 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                   <div key={act.id} className="py-2.5 flex items-center justify-between text-xs">
                     <div className="flex items-center gap-3">
                       <span className={`px-2 py-0.5 rounded text-[10px] font-mono uppercase font-semibold ${
-                        act.type === 'upload' ? 'bg-emerald-50 text-emerald-700' :
-                        act.type === 'create_file' ? 'bg-sky-50 text-sky-700' :
-                        act.type === 'create_folder' ? 'bg-purple-50 text-purple-700' :
-                        act.type === 'rename' ? 'bg-amber-50 text-amber-700' :
-                        act.type === 'edit' ? 'bg-blue-50 text-blue-700' :
-                        'bg-rose-50 text-rose-700'
+                        (act.type || act.action).toLowerCase().includes('upload') ? 'bg-emerald-50 text-emerald-700' :
+                        (act.type || act.action).toLowerCase().includes('create') ? 'bg-sky-50 text-sky-700' :
+                        (act.type || act.action).toLowerCase().includes('rename') ? 'bg-amber-50 text-amber-700' :
+                        (act.type || act.action).toLowerCase().includes('edit') ? 'bg-blue-50 text-blue-700' :
+                        'bg-slate-100 text-slate-700'
                       }`}>
-                        {act.type.replace('_', ' ')}
+                        {act.type ? act.type.replace('_', ' ') : act.action}
                       </span>
                       <span className="font-mono text-slate-800 truncate max-w-xs md:max-w-md">
                         {act.target}

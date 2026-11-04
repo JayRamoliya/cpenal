@@ -183,7 +183,7 @@ export const FtpAccountsView: React.FC = () => {
                 {accounts.map((acc) => (
                   <tr key={acc.id} className="hover:bg-slate-50 font-mono">
                     <td className="py-2.5 px-3 font-semibold text-slate-800">
-                      {acc.username}@{acc.domain}
+                      {acc.username}
                     </td>
                     <td className="py-2.5 px-3 text-slate-600 text-[11px] truncate max-w-xs">
                       {acc.directory}
@@ -192,7 +192,7 @@ export const FtpAccountsView: React.FC = () => {
                       {acc.quotaMB} MB
                     </td>
                     <td className="py-2.5 px-3 text-slate-400 text-[11px]">
-                      {acc.created}
+                      {acc.createdAt ? new Date(acc.createdAt).toLocaleDateString() : 'Active'}
                     </td>
                     <td className="py-2.5 px-3 text-right">
                       <button

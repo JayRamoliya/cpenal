@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import authRouter from './backend/routes/auth.js';
+import whmRouter from './backend/routes/whm.js';
 import filesRouter from './backend/routes/files.js';
 import storageRouter from './backend/routes/storage.js';
 import hostingRouter from './backend/routes/hosting.js';
@@ -25,11 +26,12 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'cPanel Mini Server', time: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'WHM & cPanel Multi-Tenant Server', time: new Date().toISOString() });
 });
 
 // API Routes
 app.use('/api/auth', authRouter);
+app.use('/api/whm', whmRouter);
 app.use('/api/files', filesRouter);
 app.use('/api/storage', storageRouter);
 app.use('/api/hosting', hostingRouter);

@@ -1,0 +1,501 @@
+{
+  "packages": [
+    {
+      "id": "pkg-startup",
+      "name": "Startup Tier",
+      "diskLimitMB": 2048,
+      "bandwidthLimitMB": 25600,
+      "maxDomains": 1,
+      "maxSubdomains": 3,
+      "maxEmails": 5,
+      "maxDatabases": 2,
+      "maxFtpAccounts": 2,
+      "sslAvailable": true,
+      "backupAvailable": true,
+      "sshAccess": false,
+      "dedicatedIp": false,
+      "features": [
+        "File Manager",
+        "AutoSSL",
+        "Email Webmail",
+        "MySQL MariaDB"
+      ]
+    },
+    {
+      "id": "pkg-pro",
+      "name": "Professional Pro",
+      "diskLimitMB": 10240,
+      "bandwidthLimitMB": 102400,
+      "maxDomains": 5,
+      "maxSubdomains": 15,
+      "maxEmails": 25,
+      "maxDatabases": 10,
+      "maxFtpAccounts": 10,
+      "sslAvailable": true,
+      "backupAvailable": true,
+      "sshAccess": true,
+      "dedicatedIp": false,
+      "features": [
+        "File Manager",
+        "AutoSSL",
+        "Git Control",
+        "Cron Jobs",
+        "MultiPHP",
+        "phpMyAdmin"
+      ]
+    },
+    {
+      "id": "pkg-enterprise",
+      "name": "Enterprise Cloud",
+      "diskLimitMB": 51200,
+      "bandwidthLimitMB": 512000,
+      "maxDomains": 25,
+      "maxSubdomains": 100,
+      "maxEmails": 100,
+      "maxDatabases": 50,
+      "maxFtpAccounts": 50,
+      "sslAvailable": true,
+      "backupAvailable": true,
+      "sshAccess": true,
+      "dedicatedIp": true,
+      "features": [
+        "All Features",
+        "Dedicated IP",
+        "Priority IOPS",
+        "Hourly Backups",
+        "Terminal Access"
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "id": "acc-demo",
+      "domain": "demo-site.com",
+      "username": "demo",
+      "email": "webmaster@demo-site.com",
+      "packageId": "pkg-pro",
+      "packageName": "Professional Pro",
+      "owner": "root",
+      "ip": "192.168.1.104",
+      "status": "active",
+      "diskLimitMB": 10240,
+      "diskUsedMB": 18.5,
+      "bandwidthLimitMB": 102400,
+      "bandwidthUsedMB": 420.8,
+      "phpVersion": "8.3.6",
+      "createdAt": "2026-10-15T12:00:00Z"
+    },
+    {
+      "id": "acc-acme",
+      "domain": "acmecorp.net",
+      "username": "acme",
+      "email": "admin@acmecorp.net",
+      "packageId": "pkg-enterprise",
+      "packageName": "Enterprise Cloud",
+      "owner": "root",
+      "ip": "192.168.1.108",
+      "status": "active",
+      "diskLimitMB": 51200,
+      "diskUsedMB": 45.2,
+      "bandwidthLimitMB": 512000,
+      "bandwidthUsedMB": 1250,
+      "phpVersion": "8.3.6",
+      "createdAt": "2026-10-20T08:30:00Z"
+    },
+    {
+      "id": "acc-nova-mw1qszp6",
+      "domain": "novatech.io",
+      "username": "nova",
+      "email": "admin@novatech.io",
+      "packageId": "pkg-pro",
+      "packageName": "Professional Pro",
+      "owner": "root",
+      "ip": "192.168.1.112",
+      "status": "active",
+      "diskLimitMB": 10240,
+      "diskUsedMB": 0.1,
+      "bandwidthLimitMB": 102400,
+      "bandwidthUsedMB": 0,
+      "phpVersion": "8.3.6",
+      "createdAt": "2026-11-04T06:35:33.690Z"
+    }
+  ],
+  "domains": [
+    {
+      "id": "dom-1",
+      "accountId": "acc-demo",
+      "domain": "demo-site.com",
+      "type": "primary",
+      "documentRoot": "/home/demo/public_html",
+      "sslStatus": "active",
+      "createdAt": "2026-10-15T12:00:00Z"
+    },
+    {
+      "id": "dom-2",
+      "accountId": "acc-demo",
+      "domain": "api.demo-site.com",
+      "type": "subdomain",
+      "documentRoot": "/home/demo/public_html/api",
+      "sslStatus": "active",
+      "createdAt": "2026-10-18T14:20:00Z"
+    },
+    {
+      "id": "dom-3",
+      "accountId": "acc-acme",
+      "domain": "acmecorp.net",
+      "type": "primary",
+      "documentRoot": "/home/acme/public_html",
+      "sslStatus": "active",
+      "createdAt": "2026-10-20T08:30:00Z"
+    },
+    {
+      "id": "dom-1793774133690-la84",
+      "accountId": "acc-nova-mw1qszp6",
+      "domain": "novatech.io",
+      "type": "primary",
+      "documentRoot": "/home/nova/public_html",
+      "sslStatus": "active",
+      "createdAt": "2026-11-04T06:35:33.690Z"
+    }
+  ],
+  "dnsRecords": [
+    {
+      "id": "dns-1",
+      "domain": "demo-site.com",
+      "name": "@",
+      "type": "A",
+      "record": "192.168.1.104",
+      "ttl": 14400
+    },
+    {
+      "id": "dns-2",
+      "domain": "demo-site.com",
+      "name": "www",
+      "type": "CNAME",
+      "record": "demo-site.com",
+      "ttl": 14400
+    },
+    {
+      "id": "dns-3",
+      "domain": "demo-site.com",
+      "name": "mail",
+      "type": "A",
+      "record": "192.168.1.104",
+      "ttl": 14400
+    },
+    {
+      "id": "dns-4",
+      "domain": "demo-site.com",
+      "name": "@",
+      "type": "MX",
+      "record": "mail.demo-site.com",
+      "ttl": 14400,
+      "priority": 10
+    },
+    {
+      "id": "dns-5",
+      "domain": "demo-site.com",
+      "name": "@",
+      "type": "TXT",
+      "record": "v=spf1 +a +mx ~all",
+      "ttl": 14400
+    },
+    {
+      "id": "dns-6",
+      "domain": "acmecorp.net",
+      "name": "@",
+      "type": "A",
+      "record": "192.168.1.108",
+      "ttl": 14400
+    },
+    {
+      "id": "dns-7",
+      "domain": "acmecorp.net",
+      "name": "www",
+      "type": "CNAME",
+      "record": "acmecorp.net",
+      "ttl": 14400
+    },
+    {
+      "id": "dns-1793774133690-1",
+      "domain": "novatech.io",
+      "name": "@",
+      "type": "A",
+      "record": "192.168.1.112",
+      "ttl": 14400
+    },
+    {
+      "id": "dns-1793774133690-2",
+      "domain": "novatech.io",
+      "name": "www",
+      "type": "CNAME",
+      "record": "novatech.io",
+      "ttl": 14400
+    },
+    {
+      "id": "dns-1793774133690-3",
+      "domain": "novatech.io",
+      "name": "mail",
+      "type": "A",
+      "record": "192.168.1.112",
+      "ttl": 14400
+    },
+    {
+      "id": "dns-1793774133690-4",
+      "domain": "novatech.io",
+      "name": "@",
+      "type": "MX",
+      "record": "mail.novatech.io",
+      "ttl": 14400,
+      "priority": 10
+    }
+  ],
+  "sslCertificates": [
+    {
+      "id": "ssl-1",
+      "domain": "demo-site.com",
+      "accountId": "acc-demo",
+      "issuer": "cPanel AutoSSL (Let's Encrypt)",
+      "validFrom": "2026-10-01",
+      "validTo": "2027-01-01",
+      "status": "valid",
+      "autoRenew": true,
+      "keyType": "RSA 2048-bit"
+    },
+    {
+      "id": "ssl-2",
+      "domain": "api.demo-site.com",
+      "accountId": "acc-demo",
+      "issuer": "cPanel AutoSSL (Let's Encrypt)",
+      "validFrom": "2026-10-18",
+      "validTo": "2027-01-18",
+      "status": "valid",
+      "autoRenew": true,
+      "keyType": "ECDSA 256-bit"
+    },
+    {
+      "id": "ssl-3",
+      "domain": "acmecorp.net",
+      "accountId": "acc-acme",
+      "issuer": "Sectigo Commercial PositiveSSL",
+      "validFrom": "2026-10-20",
+      "validTo": "2027-10-20",
+      "status": "valid",
+      "autoRenew": true,
+      "keyType": "RSA 4096-bit"
+    },
+    {
+      "id": "ssl-1793774133690",
+      "domain": "novatech.io",
+      "accountId": "acc-nova-mw1qszp6",
+      "issuer": "cPanel AutoSSL (Let's Encrypt)",
+      "validFrom": "2026-11-04",
+      "validTo": "2027-02-02",
+      "status": "valid",
+      "autoRenew": true,
+      "keyType": "RSA 2048-bit"
+    }
+  ],
+  "emailAccounts": [
+    {
+      "id": "mail-1",
+      "accountId": "acc-demo",
+      "email": "admin@demo-site.com",
+      "quotaMB": 1024,
+      "usedMB": 48.2,
+      "autoresponderEnabled": false,
+      "createdAt": "2026-10-15"
+    },
+    {
+      "id": "mail-2",
+      "accountId": "acc-demo",
+      "email": "support@demo-site.com",
+      "quotaMB": 2048,
+      "usedMB": 112.5,
+      "forwardTo": "helpdesk@demo-site.com",
+      "autoresponderEnabled": true,
+      "autoresponderSubject": "Thank you for contacting Demo Site Support",
+      "autoresponderBody": "We have received your ticket and our engineering team will respond within 2 business hours.",
+      "createdAt": "2026-10-16"
+    },
+    {
+      "id": "mail-3",
+      "accountId": "acc-acme",
+      "email": "contact@acmecorp.net",
+      "quotaMB": 5120,
+      "usedMB": 280,
+      "autoresponderEnabled": false,
+      "createdAt": "2026-10-20"
+    }
+  ],
+  "databases": [
+    {
+      "id": "db-1",
+      "accountId": "acc-demo",
+      "name": "demo_store",
+      "sizeMB": 12.4,
+      "charset": "utf8mb4_unicode_ci",
+      "tablesCount": 18,
+      "users": [
+        {
+          "username": "demo_app",
+          "privileges": [
+            "ALL PRIVILEGES"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "db-2",
+      "accountId": "acc-demo",
+      "name": "demo_analytics",
+      "sizeMB": 6.1,
+      "charset": "utf8mb4_unicode_ci",
+      "tablesCount": 8,
+      "users": [
+        {
+          "username": "demo_ro",
+          "privileges": [
+            "SELECT",
+            "SHOW VIEW"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "db-3",
+      "accountId": "acc-acme",
+      "name": "acme_portal",
+      "sizeMB": 34.8,
+      "charset": "utf8mb4_unicode_ci",
+      "tablesCount": 42,
+      "users": [
+        {
+          "username": "acme_master",
+          "privileges": [
+            "ALL PRIVILEGES"
+          ]
+        }
+      ]
+    }
+  ],
+  "ftpAccounts": [
+    {
+      "id": "ftp-1",
+      "accountId": "acc-demo",
+      "username": "deploy",
+      "directory": "/home/demo/public_html",
+      "quotaMB": 2048,
+      "createdAt": "2026-10-15"
+    },
+    {
+      "id": "ftp-2",
+      "accountId": "acc-acme",
+      "username": "ci_runner",
+      "directory": "/home/acme/public_html",
+      "quotaMB": 10240,
+      "createdAt": "2026-10-20"
+    }
+  ],
+  "backups": [
+    {
+      "id": "bk-1",
+      "accountId": "acc-demo",
+      "domain": "demo-site.com",
+      "filename": "backup-demo-site-2026-11-01.zip",
+      "sizeMB": 24.2,
+      "type": "full",
+      "createdAt": "2026-11-01T03:00:00Z"
+    }
+  ],
+  "apiTokens": [
+    {
+      "id": "tok-1",
+      "name": "WHMCS Automation Billing",
+      "token": "whm_token_live_99a8b7c6d5e4f3a2b1",
+      "permissions": [
+        "create_account",
+        "suspend_account",
+        "terminate_account",
+        "modify_package"
+      ],
+      "lastUsed": "2026-11-03T18:45:00Z",
+      "createdAt": "2026-10-01T00:00:00Z"
+    }
+  ],
+  "activityLogs": [
+    {
+      "id": "log-1793774133691-mgqd",
+      "user": "root",
+      "panel": "whm",
+      "action": "CREATE_ACCOUNT",
+      "target": "novatech.io",
+      "ip": "127.0.0.1",
+      "accountId": "acc-nova-mw1qszp6",
+      "timestamp": "2026-11-04T06:35:33.691Z",
+      "details": "Created for user nova with Professional Pro"
+    },
+    {
+      "id": "log-1793774098888-r92u",
+      "user": "acme",
+      "panel": "cpanel",
+      "action": "LOGIN_SUCCESS",
+      "target": "acmecorp.net",
+      "ip": "127.0.0.1",
+      "accountId": "acc-acme",
+      "timestamp": "2026-11-04T06:34:58.888Z"
+    },
+    {
+      "id": "log-1793774093001-z48x",
+      "user": "demo",
+      "panel": "cpanel",
+      "action": "LOGIN_SUCCESS",
+      "target": "demo-site.com",
+      "ip": "127.0.0.1",
+      "accountId": "acc-demo",
+      "timestamp": "2026-11-04T06:34:53.001Z"
+    },
+    {
+      "id": "log-1793774087983-k5uy",
+      "user": "root",
+      "panel": "whm",
+      "action": "LOGIN_SUCCESS",
+      "target": "WHM Root Session",
+      "ip": "127.0.0.1",
+      "timestamp": "2026-11-04T06:34:47.983Z"
+    },
+    {
+      "id": "log-1",
+      "user": "root",
+      "panel": "whm",
+      "action": "SYSTEM_BOOT",
+      "target": "WHM & cPanel Multi-Tenant Service",
+      "ip": "127.0.0.1",
+      "timestamp": "2026-11-03T20:00:00Z",
+      "details": "All hosting services, Apache HTTP, and MariaDB operational"
+    },
+    {
+      "id": "log-2",
+      "accountId": "acc-demo",
+      "user": "root",
+      "panel": "whm",
+      "action": "ACCOUNT_PROVISION",
+      "target": "demo-site.com",
+      "ip": "192.168.1.104",
+      "timestamp": "2026-11-03T20:30:00Z",
+      "details": "AutoSSL provisioned, initial public_html sandbox created"
+    }
+  ],
+  "cronJobs": [
+    {
+      "id": "cron-1",
+      "accountId": "acc-demo",
+      "minute": "0",
+      "hour": "3",
+      "day": "*",
+      "month": "*",
+      "weekday": "*",
+      "command": "/usr/local/bin/php /home/demo/public_html/cron.php > /dev/null 2>&1"
+    }
+  ]
+}
